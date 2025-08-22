@@ -62,12 +62,20 @@ const translations: Translation[] = [
     text: "Ha-Qodesh Ha-Kol" 
   },
   {
+    language: "Hebrew (Unknown) Translation",
+    text: "אֲנִי אוֹסֵר כָּל שֵׁדִים וְשָׂטָנִים וּמַתִּיר אֶת הַתַּקָּפוֹת שֶׁלָּהֶם עֲלֵיהֶם. אֲנָא אֲסַר כָּל רוּחֵי בִישָׁא וְשָׂטָנָא וְשָׁרֵי תְּקוּפֵיהוֹן עֲלֵיהוֹן."
+  },
+  {
     language: "English",
     text: "I bind all demonic and satanic principalities, and I return the demonic and satanic principalities’ attacks onto those same demonic and satanic principalities."
   },
   {
     language: "Latin",
     text: "Alligo omnes principatus daemonicos et satanicos, et reddo impetus principatuum daemoniorum et satanicorum in eosdem principatus daemonicos et satanicos."
+  },
+  {
+    language: "Pig Latin",
+    text: "I-bay ind-bay all-way emonic-day and-way atanic-say incipalities-pray and-way oose-lay eir-thay attacks-way ack-bay onto-way em-thay.",
   },
   {
     language: "Greek (Koine)",
