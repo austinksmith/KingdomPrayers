@@ -1,5 +1,5 @@
 import * as Speech from 'expo-speech';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, JSX } from 'react';
 import { Button, Image, StyleSheet, Text, View } from 'react-native';
 
 const texts: string[] = [
