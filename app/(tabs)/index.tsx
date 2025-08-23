@@ -165,6 +165,8 @@ const shuffleArray = <T,>(array: T[]): T[] => {
   return shuffled;
 };
 
+
+
 // Helper: speak and await finish
 function speakAsync(text: string): Promise<void> {
   return new Promise((resolve) => {
@@ -177,6 +179,7 @@ function speakAsync(text: string): Promise<void> {
 }
 
 export default function HomeScreen(): JSX.Element {
+  let alreadySpoken = new Array();
   const queueRef = useRef<Translation[]>([]);
   const indexRef = useRef<number>(0);
   const [isLooping, setIsLooping] = useState(false);
@@ -185,6 +188,7 @@ export default function HomeScreen(): JSX.Element {
   const loopSpeak = async () => {
     while (!stoppedRef.current) {
       if (!queueRef.current.length || indexRef.current >= queueRef.current.length) {
+        alreadySpoken = [];
         queueRef.current = shuffleArray(translations);
         indexRef.current = 0;
       }
@@ -192,10 +196,13 @@ export default function HomeScreen(): JSX.Element {
       const current = queueRef.current[indexRef.current];
       indexRef.current += 1;
 
-      await speakAsync(current.text);
+      if(alreadySpoken.indexOf(current.text) === -1) {
+        alreadySpoken.push(current.text);
+        await speakAsync(current.text);
+      }
 
       // Delay between phrases
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 2500));
     }
   };
 
