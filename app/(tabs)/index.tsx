@@ -20,6 +20,7 @@ const langToFilePrefix = (lang: string) =>
 export default function HomeScreen(): JSX.Element {
   const [isLooping, setIsLooping] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [audioSetupComplete, setAudioSetupComplete] = useState(false);
 
   const queueRef = useRef<{ language: string }[]>([]);
   const indexRef = useRef(0);
@@ -64,6 +65,29 @@ export default function HomeScreen(): JSX.Element {
     Hexadecimal: require("@/assets/audio/hexadecimal.mp3"),
   };
 
+  // Setup audio mode on component mount
+  useEffect(() => {
+    const setupAudio = async () => {
+      try {
+        console.log("Setting up audio mode...");
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+          interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+        console.log("Audio mode setup complete");
+        setAudioSetupComplete(true);
+      } catch (error) {
+        console.error("Error setting up audio mode:", error);
+      }
+    };
+    
+    setupAudio();
+  }, []);
 
   // Build queue with random voice per translation
   const buildQueue = (): { language: string }[] => {
@@ -74,6 +98,7 @@ export default function HomeScreen(): JSX.Element {
 
   const playFile = async (language: string) => {
     try {
+      console.log(`Attempting to play: ${language}`);
       setIsLoading(true);
 
       if (soundRef.current) {
@@ -86,73 +111,114 @@ export default function HomeScreen(): JSX.Element {
         throw new Error(`No audio file found for language: ${language}`);
       }
 
-      const { sound } = await Audio.Sound.createAsync(source);
+      console.log(`Loading audio for: ${language}`);
+      const { sound } = await Audio.Sound.createAsync(source, {
+        shouldPlay: false,
+        isLooping: false,
+      });
       soundRef.current = sound;
 
+      console.log(`Playing audio for: ${language}`);
       await sound.playAsync();
       setIsLoading(false);
 
-      return new Promise<void>((resolve) => {
+      return new Promise<void>((resolve, reject) => {
         sound.setOnPlaybackStatusUpdate((status) => {
           if (!status.isLoaded) return;
-          if (status.didJustFinish) resolve();
+          
+          if (status.error) {
+            console.error(`Playback error for ${language}:`, status.error);
+            reject(new Error(status.error));
+            return;
+          }
+          
+          if (status.didJustFinish) {
+            console.log(`Finished playing: ${language}`);
+            resolve();
+          }
         });
       });
     } catch (err) {
       console.error("Error playing file:", language, err);
       setIsLoading(false);
+      throw err;
     }
   };
 
   const loopPlay = async () => {
-    while (!stoppedRef.current && Object.keys(audioMap).length) {
-      if (!queueRef.current.length || indexRef.current >= queueRef.current.length) {
-        queueRef.current = buildQueue();
-        indexRef.current = 0;
+    try {
+      while (!stoppedRef.current && Object.keys(audioMap).length > 0) {
+        if (!queueRef.current.length || indexRef.current >= queueRef.current.length) {
+          console.log("Building new queue...");
+          queueRef.current = buildQueue();
+          indexRef.current = 0;
+        }
+
+        const current = queueRef.current[indexRef.current];
+        indexRef.current += 1;
+
+        if (!stoppedRef.current) {
+          await playFile(current.language);
+        }
+
+        // Small pause between prayers
+        if (!stoppedRef.current) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
       }
-
-      const current = queueRef.current[indexRef.current];
-      indexRef.current += 1;
-
-      await playFile(current.language);
-
-      // small pause between prayers
-      await new Promise((r) => setTimeout(r, 1000));
+    } catch (error) {
+      console.error("Error in loop play:", error);
+      setIsLooping(false);
+      stoppedRef.current = true;
     }
   };
 
   const startLoop = async () => {
-    if (!isLooping && audioMap.size) {
+    if (!audioSetupComplete) {
+      console.log("Audio setup not complete yet, please wait...");
+      return;
+    }
+
+    if (!isLooping && Object.keys(audioMap).length > 0) {
+      console.log("Starting prayer loop...");
       stoppedRef.current = false;
       setIsLooping(true);
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-
       queueRef.current = buildQueue();
       indexRef.current = 0;
-      loopPlay();
+      
+      try {
+        await loopPlay();
+      } catch (error) {
+        console.error("Error starting loop:", error);
+        setIsLooping(false);
+        stoppedRef.current = true;
+      }
     }
   };
 
-  const stopLoop = () => {
+  const stopLoop = async () => {
+    console.log("Stopping prayer loop...");
     stoppedRef.current = true;
     setIsLooping(false);
-    if (soundRef.current) soundRef.current.stopAsync();
+    
+    if (soundRef.current) {
+      try {
+        await soundRef.current.stopAsync();
+      } catch (error) {
+        console.error("Error stopping sound:", error);
+      }
+    }
   };
 
-  // Cleanup
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log("Cleaning up audio resources...");
       stoppedRef.current = true;
-      if (soundRef.current) soundRef.current.unloadAsync();
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(console.error);
+      }
     };
   }, []);
 
@@ -161,19 +227,40 @@ export default function HomeScreen(): JSX.Element {
       <SafeAreaView style={styles.container} edges={['top']}>
         <ScrollView style={styles.container}>
           <Text style={styles.h1}>Binding Prayers</Text>
-          <Text>A binding prayer is a spiritual practice used for protection and deliverance from evil spirits and demonic influences, often invoking the authority of Jesus Christ.
-    It is primarily intended for the laity as a prayer of spiritual protection against attacks from evil spirits.
-    The prayer typically involves asking Jesus to bind evil spirits, demonic forces, and satanic powers in various realms—air, water, ground, fire, and underground—by His Precious Blood.
-    The proper form for a laity's binding prayer is to ask Jesus to bind the spirits rather than command them to depart.</Text>
+          <Text style={styles.description}>
+            A binding prayer is a spiritual practice used for protection and deliverance from evil spirits and demonic influences, often invoking the authority of Jesus Christ.
+            It is primarily intended for the laity as a prayer of spiritual protection against attacks from evil spirits.
+            The prayer typically involves asking Jesus to bind evil spirits, demonic forces, and satanic powers in various realms—air, water, ground, fire, and underground—by His Precious Blood.
+            The proper form for a laity's binding prayer is to ask Jesus to bind the spirits rather than command them to depart.
+          </Text>
+          
           <Image
             source={require("@/assets/images/prayers.jpg")}
-            style={{ width: 375, height: 500 }}
+            style={styles.image}
             resizeMode="center"
           />
-          {isLoading && <ActivityIndicator size="large" />}
-          <Button title="Start Prayers" onPress={startLoop} disabled={isLooping} />
-          <Button title="Stop" onPress={stopLoop} disabled={!isLooping} />
-          <Text>&copy; Christ Kingdom</Text>
+          
+          {!audioSetupComplete && (
+            <Text style={styles.setupText}>Setting up audio...</Text>
+          )}
+          
+          {isLoading && (
+            <ActivityIndicator size="large" color="#0066cc" style={styles.loader} />
+          )}
+          
+          <Button 
+            title="Start Prayers" 
+            onPress={startLoop} 
+            disabled={isLooping || !audioSetupComplete} 
+          />
+          
+          <Button 
+            title="Stop" 
+            onPress={stopLoop} 
+            disabled={!isLooping} 
+          />
+          
+          <Text style={styles.copyright}>&copy; Christ Kingdom</Text>
         </ScrollView>
       </SafeAreaView>
     </SafeAreaProvider>
@@ -181,6 +268,44 @@ export default function HomeScreen(): JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingTop: 10, paddingBottom: 15, paddingLeft: 10, paddingRight: 10, flex: 2},
-  h1: {fontSize: 48, paddingTop: 15, paddingBottom: 35, flex: 1, fontWeight: "bold"}
+  container: { 
+    paddingTop: 10, 
+    paddingBottom: 15, 
+    paddingLeft: 10, 
+    paddingRight: 10, 
+    flex: 1
+  },
+  h1: {
+    fontSize: 48, 
+    paddingTop: 15, 
+    paddingBottom: 35, 
+    fontWeight: "bold"
+  },
+  description: {
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 20,
+    textAlign: 'justify'
+  },
+  image: {
+    width: 375,
+    height: 500,
+    alignSelf: 'center',
+    marginVertical: 20
+  },
+  setupText: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#666',
+    marginVertical: 10
+  },
+  loader: {
+    marginVertical: 20
+  },
+  copyright: {
+    textAlign: 'center',
+    marginTop: 30,
+    fontSize: 14,
+    color: '#666'
+  }
 });
