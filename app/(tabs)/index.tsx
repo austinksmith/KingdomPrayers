@@ -179,7 +179,7 @@ function speakAsync(text: string): Promise<void> {
 }
 
 export default function HomeScreen(): JSX.Element {
-  let alreadySpoken = new Array();
+  let alreadySpoken: string[] = [];
   const queueRef = useRef<Translation[]>([]);
   const indexRef = useRef<number>(0);
   const [isLooping, setIsLooping] = useState(false);
@@ -202,7 +202,7 @@ export default function HomeScreen(): JSX.Element {
       }
 
       // Delay between phrases
-      await new Promise((r) => setTimeout(r, 2500));
+      await new Promise((r) => setTimeout(r, 2000));
     }
   };
 
