@@ -74,8 +74,8 @@ export default function HomeScreen(): JSX.Element {
           allowsRecordingIOS: false,
           playsInSilentModeIOS: true,
           staysActiveInBackground: true,
-          interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-          interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
+          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
           shouldDuckAndroid: true,
           playThroughEarpieceAndroid: false,
         });
@@ -115,6 +115,8 @@ export default function HomeScreen(): JSX.Element {
       const { sound } = await Audio.Sound.createAsync(source, {
         shouldPlay: false,
         isLooping: false,
+        progressUpdateIntervalMillis: 1000,
+        positionMillis: 0,
       });
       soundRef.current = sound;
 
@@ -126,11 +128,11 @@ export default function HomeScreen(): JSX.Element {
         sound.setOnPlaybackStatusUpdate((status) => {
           if (!status.isLoaded) return;
           
-          if (status.error) {
-            console.error(`Playback error for ${language}:`, status.error);
-            reject(new Error(status.error));
-            return;
-          }
+          // if (status.error) {
+          //   console.error(`Playback error for ${language}:`, status.error);
+          //   reject(new Error(status.error));
+          //   return;
+          // }
           
           if (status.didJustFinish) {
             console.log(`Finished playing: ${language}`);
