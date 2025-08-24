@@ -76,7 +76,7 @@ export default function HomeScreen(): JSX.Element {
   };
 
   const playFile = async (language: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       try {
         console.log(`Attempting to play: ${language}`);
         setIsLoading(true);
@@ -89,34 +89,41 @@ export default function HomeScreen(): JSX.Element {
 
         console.log(`Loading and playing audio for: ${language}`);
         
-        // Replace the current audio source and play
+        // Replace the current audio source
         player.replace(source);
         
-        // Set up a one-time listener for when this track finishes
+        // Wait a bit for the source to load, then play
+        await new Promise(r => setTimeout(r, 100));
+        
+        // Start playback
+        player.play();
+        
+        // Wait another moment to ensure playback starts
+        await new Promise(r => setTimeout(r, 200));
+        
+        setIsLoading(false);
+        
+        // Set up a listener for when this track finishes
         const checkStatus = () => {
           if (status.isLoaded && status.didJustFinish) {
             console.log(`Finished playing: ${language}`);
-            setIsLoading(false);
-            resolve();
+            return true;
           }
-          //  else if (status.error) {
-          //   console.error(`Playback error for ${language}:`, status.error);
-          //   setIsLoading(false);
-          //   reject(new Error(status.error));
-          // }
+          return false;
         };
 
-        // Check immediately and set up interval to check status
+        // Check status periodically until track finishes
         const statusInterval = setInterval(() => {
-          checkStatus();
-          if (status.isLoaded && status.didJustFinish) {
+          if (checkStatus()) {
             clearInterval(statusInterval);
+            resolve();
           }
-        }, 100);
+        }, 500);
 
         // Cleanup interval after reasonable timeout
         setTimeout(() => {
           clearInterval(statusInterval);
+          resolve(); // Resolve anyway to prevent hanging
         }, 300000); // 5 minutes max per track
 
       } catch (err) {
@@ -152,6 +159,19 @@ export default function HomeScreen(): JSX.Element {
       console.error("Error in loop play:", error);
       setIsLooping(false);
       stoppedRef.current = true;
+    }
+  };
+
+  const testPlay = () => {
+    console.log("Testing direct play with English...");
+    setCurrentLanguage('English');
+    try {
+      player.replace(audioMap.English);
+      console.log("Source replaced, attempting to play...");
+      player.play();
+      console.log("Play called");
+    } catch (error) {
+      console.error("Test play error:", error);
     }
   };
 
@@ -200,12 +220,25 @@ export default function HomeScreen(): JSX.Element {
     };
   }, [player]);
 
-  // Monitor player status for debugging
+  // Monitor player status changes to handle playback completion
   useEffect(() => {
-    if (status.isLoaded) {
-      console.log(`Player status - isPlaying: ${status.playing}, currentTime: ${status.currentTime}, duration: ${status.duration}`);
+    // Debug: Log all available status properties
+    console.log('Status object:', {
+      isLoaded: status.isLoaded,
+      isPlaying: status.playing,
+      didJustFinish: status.didJustFinish,
+      duration: status.duration,
+      currentTime: status.currentTime
+    });
+    
+    if (status.isLoaded && status.didJustFinish && isLooping) {
+      console.log('Track finished, continuing to next...');
     }
-  }, [status.playing, status.currentTime]);
+    
+    if (status.isLoaded && status.playing) {
+      console.log(`Currently playing - Time: ${status.currentTime?.toFixed(1)}s / ${status.duration?.toFixed(1)}s`);
+    }
+  }, [status.didJustFinish, status.playing, status.currentTime, isLooping]);
 
   return (
     <SafeAreaProvider>
@@ -236,6 +269,11 @@ export default function HomeScreen(): JSX.Element {
           )}
           
           <Button 
+            title="Test Play English" 
+            onPress={testPlay}
+          />
+          
+          <Button 
             title="Start Prayers" 
             onPress={startLoop} 
             disabled={isLooping} 
@@ -246,6 +284,7 @@ export default function HomeScreen(): JSX.Element {
             onPress={stopLoop} 
             disabled={!isLooping} 
           />
+          
           {status.isLoaded && (
             <Text style={styles.statusText}>
               Status: {status.playing ? 'Playing' : 'Paused'} | 
