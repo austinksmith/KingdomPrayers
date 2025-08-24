@@ -98,11 +98,12 @@ export default function HomeScreen(): JSX.Element {
             console.log(`Finished playing: ${language}`);
             setIsLoading(false);
             resolve();
-          } else if (status.error) {
-            console.error(`Playback error for ${language}:`, status.error);
-            setIsLoading(false);
-            reject(new Error(status.error));
           }
+          //  else if (status.error) {
+          //   console.error(`Playback error for ${language}:`, status.error);
+          //   setIsLoading(false);
+          //   reject(new Error(status.error));
+          // }
         };
 
         // Check immediately and set up interval to check status
@@ -202,9 +203,9 @@ export default function HomeScreen(): JSX.Element {
   // Monitor player status for debugging
   useEffect(() => {
     if (status.isLoaded) {
-      console.log(`Player status - isPlaying: ${status.isPlaying}, currentTime: ${status.currentTime}, duration: ${status.duration}`);
+      console.log(`Player status - isPlaying: ${status.playing}, currentTime: ${status.currentTime}, duration: ${status.duration}`);
     }
-  }, [status.isPlaying, status.currentTime]);
+  }, [status.playing, status.currentTime]);
 
   return (
     <SafeAreaProvider>
@@ -245,10 +246,9 @@ export default function HomeScreen(): JSX.Element {
             onPress={stopLoop} 
             disabled={!isLooping} 
           />
-          
           {status.isLoaded && (
             <Text style={styles.statusText}>
-              Status: {status.isPlaying ? 'Playing' : 'Paused'} | 
+              Status: {status.playing ? 'Playing' : 'Paused'} | 
               Time: {Math.round(status.currentTime || 0)}s / {Math.round(status.duration || 0)}s
             </Text>
           )}

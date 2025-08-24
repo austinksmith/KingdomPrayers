@@ -1,4 +1,4 @@
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { JSX, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Button, Image, ScrollView, StyleSheet, Text } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -20,11 +20,15 @@ const langToFilePrefix = (lang: string) =>
 export default function HomeScreen(): JSX.Element {
   const [isLooping, setIsLooping] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState<string>('');
 
   const queueRef = useRef<{ language: string }[]>([]);
   const indexRef = useRef(0);
   const stoppedRef = useRef(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // Create audio player instance
+  const player = useAudioPlayer();
+  const status = useAudioPlayerStatus(player);
 
   const audioMap: Record<string, any> = {
     Latin: require("@/assets/audio/latin.mp3"),
@@ -64,7 +68,6 @@ export default function HomeScreen(): JSX.Element {
     Hexadecimal: require("@/assets/audio/hexadecimal.mp3"),
   };
 
-
   // Build queue with random voice per translation
   const buildQueue = (): { language: string }[] => {
     return shuffleArray(
@@ -72,108 +75,185 @@ export default function HomeScreen(): JSX.Element {
     );
   };
 
-  const playFile = async (language: string) => {
-    try {
-      setIsLoading(true);
+  const playFile = async (language: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      try {
+        console.log(`Attempting to play: ${language}`);
+        setIsLoading(true);
+        setCurrentLanguage(language);
 
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
+        const source = audioMap[language];
+        if (!source) {
+          throw new Error(`No audio file found for language: ${language}`);
+        }
+
+        console.log(`Loading and playing audio for: ${language}`);
+        
+        // Replace the current audio source and play
+        player.replace(source);
+        
+        // Set up a one-time listener for when this track finishes
+        const checkStatus = () => {
+          if (status.isLoaded && status.didJustFinish) {
+            console.log(`Finished playing: ${language}`);
+            setIsLoading(false);
+            resolve();
+          }
+          //  else if (status.error) {
+          //   console.error(`Playback error for ${language}:`, status.error);
+          //   setIsLoading(false);
+          //   reject(new Error(status.error));
+          // }
+        };
+
+        // Check immediately and set up interval to check status
+        const statusInterval = setInterval(() => {
+          checkStatus();
+          if (status.isLoaded && status.didJustFinish) {
+            clearInterval(statusInterval);
+          }
+        }, 100);
+
+        // Cleanup interval after reasonable timeout
+        setTimeout(() => {
+          clearInterval(statusInterval);
+        }, 300000); // 5 minutes max per track
+
+      } catch (err) {
+        console.error("Error playing file:", language, err);
+        setIsLoading(false);
+        reject(err);
       }
-
-      const source = audioMap[language];
-      if (!source) {
-        throw new Error(`No audio file found for language: ${language}`);
-      }
-
-      const { sound } = await Audio.Sound.createAsync(source);
-      soundRef.current = sound;
-
-      await sound.playAsync();
-      setIsLoading(false);
-
-      return new Promise<void>((resolve) => {
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (!status.isLoaded) return;
-          if (status.didJustFinish) resolve();
-        });
-      });
-    } catch (err) {
-      console.error("Error playing file:", language, err);
-      setIsLoading(false);
-    }
+    });
   };
 
   const loopPlay = async () => {
-    while (!stoppedRef.current && Object.keys(audioMap).length) {
-      if (!queueRef.current.length || indexRef.current >= queueRef.current.length) {
-        queueRef.current = buildQueue();
-        indexRef.current = 0;
+    try {
+      while (!stoppedRef.current && Object.keys(audioMap).length > 0) {
+        if (!queueRef.current.length || indexRef.current >= queueRef.current.length) {
+          console.log("Building new queue...");
+          queueRef.current = buildQueue();
+          indexRef.current = 0;
+        }
+
+        const current = queueRef.current[indexRef.current];
+        indexRef.current += 1;
+
+        if (!stoppedRef.current) {
+          await playFile(current.language);
+        }
+
+        // Small pause between prayers
+        if (!stoppedRef.current) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
       }
-
-      const current = queueRef.current[indexRef.current];
-      indexRef.current += 1;
-
-      await playFile(current.language);
-
-      // small pause between prayers
-      await new Promise((r) => setTimeout(r, 1000));
+    } catch (error) {
+      console.error("Error in loop play:", error);
+      setIsLooping(false);
+      stoppedRef.current = true;
     }
   };
 
   const startLoop = async () => {
-    if (!isLooping && audioMap.size) {
+    if (!isLooping && Object.keys(audioMap).length > 0) {
+      console.log("Starting prayer loop...");
       stoppedRef.current = false;
       setIsLooping(true);
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: true,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-      });
-
       queueRef.current = buildQueue();
       indexRef.current = 0;
-      loopPlay();
+      
+      try {
+        await loopPlay();
+      } catch (error) {
+        console.error("Error starting loop:", error);
+        setIsLooping(false);
+        stoppedRef.current = true;
+      }
     }
   };
 
   const stopLoop = () => {
+    console.log("Stopping prayer loop...");
     stoppedRef.current = true;
     setIsLooping(false);
-    if (soundRef.current) soundRef.current.stopAsync();
+    setCurrentLanguage('');
+    
+    try {
+      player.pause();
+    } catch (error) {
+      console.error("Error stopping player:", error);
+    }
   };
 
-  // Cleanup
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log("Cleaning up audio resources...");
       stoppedRef.current = true;
-      if (soundRef.current) soundRef.current.unloadAsync();
+      try {
+        player.remove();
+      } catch (error) {
+        console.error("Error cleaning up player:", error);
+      }
     };
-  }, []);
+  }, [player]);
+
+  // Monitor player status for debugging
+  useEffect(() => {
+    if (status.isLoaded) {
+      console.log(`Player status - isPlaying: ${status.playing}, currentTime: ${status.currentTime}, duration: ${status.duration}`);
+    }
+  }, [status.playing, status.currentTime]);
 
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.container} edges={['top']}>
         <ScrollView style={styles.container}>
           <Text style={styles.h1}>Binding Prayers</Text>
-          <Text>A binding prayer is a spiritual practice used for protection and deliverance from evil spirits and demonic influences, often invoking the authority of Jesus Christ.
-    It is primarily intended for the laity as a prayer of spiritual protection against attacks from evil spirits.
-    The prayer typically involves asking Jesus to bind evil spirits, demonic forces, and satanic powers in various realms—air, water, ground, fire, and underground—by His Precious Blood.
-    The proper form for a laity's binding prayer is to ask Jesus to bind the spirits rather than command them to depart.</Text>
+          <Text style={styles.description}>
+            A binding prayer is a spiritual practice used for protection and deliverance from evil spirits and demonic influences, often invoking the authority of Jesus Christ.
+            It is primarily intended for the laity as a prayer of spiritual protection against attacks from evil spirits.
+            The prayer typically involves asking Jesus to bind evil spirits, demonic forces, and satanic powers in various realms—air, water, ground, fire, and underground—by His Precious Blood.
+            The proper form for a laity's binding prayer is to ask Jesus to bind the spirits rather than command them to depart.
+          </Text>
+          
           <Image
             source={require("@/assets/images/prayers.jpg")}
-            style={{ width: 375, height: 500 }}
+            style={styles.image}
             resizeMode="center"
           />
-          {isLoading && <ActivityIndicator size="large" />}
-          <Button title="Start Prayers" onPress={startLoop} disabled={isLooping} />
-          <Button title="Stop" onPress={stopLoop} disabled={!isLooping} />
-          <Text>&copy; Christ Kingdom</Text>
+          
+          {currentLanguage && (
+            <Text style={styles.currentLanguage}>
+              Currently playing: {currentLanguage.replace(/_/g, ' ')}
+            </Text>
+          )}
+          
+          {isLoading && (
+            <ActivityIndicator size="large" color="#0066cc" style={styles.loader} />
+          )}
+          
+          <Button 
+            title="Start Prayers" 
+            onPress={startLoop} 
+            disabled={isLooping} 
+          />
+          
+          <Button 
+            title="Stop" 
+            onPress={stopLoop} 
+            disabled={!isLooping} 
+          />
+          {status.isLoaded && (
+            <Text style={styles.statusText}>
+              Status: {status.playing ? 'Playing' : 'Paused'} | 
+              Time: {Math.round(status.currentTime || 0)}s / {Math.round(status.duration || 0)}s
+            </Text>
+          )}
+          
+          <Text style={styles.copyright}>&copy; Christ Kingdom</Text>
         </ScrollView>
       </SafeAreaView>
     </SafeAreaProvider>
@@ -181,6 +261,51 @@ export default function HomeScreen(): JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingTop: 10, paddingBottom: 15, paddingLeft: 10, paddingRight: 10, flex: 2},
-  h1: {fontSize: 48, paddingTop: 15, paddingBottom: 35, flex: 1, fontWeight: "bold"}
+  container: { 
+    paddingTop: 10, 
+    paddingBottom: 15, 
+    paddingLeft: 10, 
+    paddingRight: 10, 
+    flex: 1
+  },
+  h1: {
+    fontSize: 48, 
+    paddingTop: 15, 
+    paddingBottom: 35, 
+    fontWeight: "bold"
+  },
+  description: {
+    fontSize: 16,
+    lineHeight: 22,
+    marginBottom: 20,
+    textAlign: 'justify'
+  },
+  image: {
+    width: 375,
+    height: 500,
+    alignSelf: 'center',
+    marginVertical: 20
+  },
+  currentLanguage: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#0066cc',
+    fontWeight: 'bold',
+    marginVertical: 10
+  },
+  loader: {
+    marginVertical: 20
+  },
+  statusText: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 10
+  },
+  copyright: {
+    textAlign: 'center',
+    marginTop: 30,
+    fontSize: 14,
+    color: '#666'
+  }
 });
