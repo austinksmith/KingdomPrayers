@@ -1,4 +1,4 @@
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { JSX, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Button, Image, ScrollView, StyleSheet, Text } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -20,12 +20,15 @@ const langToFilePrefix = (lang: string) =>
 export default function HomeScreen(): JSX.Element {
   const [isLooping, setIsLooping] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [audioSetupComplete, setAudioSetupComplete] = useState(false);
+  const [currentLanguage, setCurrentLanguage] = useState<string>('');
 
   const queueRef = useRef<{ language: string }[]>([]);
   const indexRef = useRef(0);
   const stoppedRef = useRef(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // Create audio player instance
+  const player = useAudioPlayer();
+  const status = useAudioPlayerStatus(player);
 
   const audioMap: Record<string, any> = {
     Latin: require("@/assets/audio/latin.mp3"),
@@ -65,30 +68,6 @@ export default function HomeScreen(): JSX.Element {
     Hexadecimal: require("@/assets/audio/hexadecimal.mp3"),
   };
 
-  // Setup audio mode on component mount
-  useEffect(() => {
-    const setupAudio = async () => {
-      try {
-        console.log("Setting up audio mode...");
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: true,
-          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
-          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-        });
-        console.log("Audio mode setup complete");
-        setAudioSetupComplete(true);
-      } catch (error) {
-        console.error("Error setting up audio mode:", error);
-      }
-    };
-    
-    setupAudio();
-  }, []);
-
   // Build queue with random voice per translation
   const buildQueue = (): { language: string }[] => {
     return shuffleArray(
@@ -96,55 +75,55 @@ export default function HomeScreen(): JSX.Element {
     );
   };
 
-  const playFile = async (language: string) => {
-    try {
-      console.log(`Attempting to play: ${language}`);
-      setIsLoading(true);
+  const playFile = async (language: string): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      try {
+        console.log(`Attempting to play: ${language}`);
+        setIsLoading(true);
+        setCurrentLanguage(language);
 
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-        soundRef.current = null;
-      }
+        const source = audioMap[language];
+        if (!source) {
+          throw new Error(`No audio file found for language: ${language}`);
+        }
 
-      const source = audioMap[language];
-      if (!source) {
-        throw new Error(`No audio file found for language: ${language}`);
-      }
-
-      console.log(`Loading audio for: ${language}`);
-      const { sound } = await Audio.Sound.createAsync(source, {
-        shouldPlay: false,
-        isLooping: false,
-        progressUpdateIntervalMillis: 1000,
-        positionMillis: 0,
-      });
-      soundRef.current = sound;
-
-      console.log(`Playing audio for: ${language}`);
-      await sound.playAsync();
-      setIsLoading(false);
-
-      return new Promise<void>((resolve, reject) => {
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (!status.isLoaded) return;
-          
-          // if (status.error) {
-          //   console.error(`Playback error for ${language}:`, status.error);
-          //   reject(new Error(status.error));
-          //   return;
-          // }
-          
-          if (status.didJustFinish) {
+        console.log(`Loading and playing audio for: ${language}`);
+        
+        // Replace the current audio source and play
+        player.replace(source);
+        
+        // Set up a one-time listener for when this track finishes
+        const checkStatus = () => {
+          if (status.isLoaded && status.didJustFinish) {
             console.log(`Finished playing: ${language}`);
+            setIsLoading(false);
             resolve();
+          } else if (status.error) {
+            console.error(`Playback error for ${language}:`, status.error);
+            setIsLoading(false);
+            reject(new Error(status.error));
           }
-        });
-      });
-    } catch (err) {
-      console.error("Error playing file:", language, err);
-      setIsLoading(false);
-      throw err;
-    }
+        };
+
+        // Check immediately and set up interval to check status
+        const statusInterval = setInterval(() => {
+          checkStatus();
+          if (status.isLoaded && status.didJustFinish) {
+            clearInterval(statusInterval);
+          }
+        }, 100);
+
+        // Cleanup interval after reasonable timeout
+        setTimeout(() => {
+          clearInterval(statusInterval);
+        }, 300000); // 5 minutes max per track
+
+      } catch (err) {
+        console.error("Error playing file:", language, err);
+        setIsLoading(false);
+        reject(err);
+      }
+    });
   };
 
   const loopPlay = async () => {
@@ -176,11 +155,6 @@ export default function HomeScreen(): JSX.Element {
   };
 
   const startLoop = async () => {
-    if (!audioSetupComplete) {
-      console.log("Audio setup not complete yet, please wait...");
-      return;
-    }
-
     if (!isLooping && Object.keys(audioMap).length > 0) {
       console.log("Starting prayer loop...");
       stoppedRef.current = false;
@@ -199,17 +173,16 @@ export default function HomeScreen(): JSX.Element {
     }
   };
 
-  const stopLoop = async () => {
+  const stopLoop = () => {
     console.log("Stopping prayer loop...");
     stoppedRef.current = true;
     setIsLooping(false);
+    setCurrentLanguage('');
     
-    if (soundRef.current) {
-      try {
-        await soundRef.current.stopAsync();
-      } catch (error) {
-        console.error("Error stopping sound:", error);
-      }
+    try {
+      player.pause();
+    } catch (error) {
+      console.error("Error stopping player:", error);
     }
   };
 
@@ -218,11 +191,20 @@ export default function HomeScreen(): JSX.Element {
     return () => {
       console.log("Cleaning up audio resources...");
       stoppedRef.current = true;
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(console.error);
+      try {
+        player.remove();
+      } catch (error) {
+        console.error("Error cleaning up player:", error);
       }
     };
-  }, []);
+  }, [player]);
+
+  // Monitor player status for debugging
+  useEffect(() => {
+    if (status.isLoaded) {
+      console.log(`Player status - isPlaying: ${status.isPlaying}, currentTime: ${status.currentTime}, duration: ${status.duration}`);
+    }
+  }, [status.isPlaying, status.currentTime]);
 
   return (
     <SafeAreaProvider>
@@ -242,8 +224,10 @@ export default function HomeScreen(): JSX.Element {
             resizeMode="center"
           />
           
-          {!audioSetupComplete && (
-            <Text style={styles.setupText}>Setting up audio...</Text>
+          {currentLanguage && (
+            <Text style={styles.currentLanguage}>
+              Currently playing: {currentLanguage.replace(/_/g, ' ')}
+            </Text>
           )}
           
           {isLoading && (
@@ -253,7 +237,7 @@ export default function HomeScreen(): JSX.Element {
           <Button 
             title="Start Prayers" 
             onPress={startLoop} 
-            disabled={isLooping || !audioSetupComplete} 
+            disabled={isLooping} 
           />
           
           <Button 
@@ -261,6 +245,13 @@ export default function HomeScreen(): JSX.Element {
             onPress={stopLoop} 
             disabled={!isLooping} 
           />
+          
+          {status.isLoaded && (
+            <Text style={styles.statusText}>
+              Status: {status.isPlaying ? 'Playing' : 'Paused'} | 
+              Time: {Math.round(status.currentTime || 0)}s / {Math.round(status.duration || 0)}s
+            </Text>
+          )}
           
           <Text style={styles.copyright}>&copy; Christ Kingdom</Text>
         </ScrollView>
@@ -295,14 +286,21 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginVertical: 20
   },
-  setupText: {
+  currentLanguage: {
     fontSize: 16,
     textAlign: 'center',
-    color: '#666',
+    color: '#0066cc',
+    fontWeight: 'bold',
     marginVertical: 10
   },
   loader: {
     marginVertical: 20
+  },
+  statusText: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#666',
+    marginTop: 10
   },
   copyright: {
     textAlign: 'center',

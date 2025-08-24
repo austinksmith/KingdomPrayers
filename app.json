@@ -45,9 +45,10 @@
         }
       ],
       [
-        "expo-av",
+        "expo-audio",
         {
-          "microphonePermission": "This app uses the microphone for audio playback."
+          "microphonePermission": "This app uses audio for prayer playback.",
+          "audioRecordingPermission": "This app does not record audio."
         }
       ]
     ],
