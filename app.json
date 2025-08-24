@@ -2,7 +2,7 @@
   "expo": {
     "name": "KingdomShield",
     "slug": "KingdomShield",
-    "version": "1.0.4",
+    "version": "1.0.5",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "kingdomshield",
@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.hamstersarecool.KingdomShield",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["audio"]
       }
     },
     "android": {
@@ -21,7 +22,11 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.hamstersarecool.KingdomShield"
+      "package": "com.hamstersarecool.KingdomShield",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -37,6 +42,12 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "This app uses the microphone for audio playback."
         }
       ]
     ],
