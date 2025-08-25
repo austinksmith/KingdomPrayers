@@ -107,14 +107,15 @@ export default function HomeScreen(): JSX.Element {
         const checkStatus = () => {
           if (status.isLoaded && status.didJustFinish) {
             console.log(`Finished playing: ${language}`);
-            return true;
+            return status.didJustFinish;
           }
           return false;
         };
 
         // Check status periodically until track finishes
         const statusInterval = setInterval(() => {
-          if (checkStatus()) {
+          let playbackFinished = checkStatus();
+          if (playbackFinished) {
             clearInterval(statusInterval);
             resolve();
           }
